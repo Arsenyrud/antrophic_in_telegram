@@ -72,6 +72,7 @@ const HELP = [
   'Если задача сессии уже работает, текст впрыснется в неё.',
   'Ниже — кнопки меню; всё то же есть и командами:',
   '',
+  '/guide — что такое сессии и проекты',
   '/sessions — сессии (переключение, создание)',
   '/reset — новый диалог Claude в текущей сессии',
   '/projects — проект текущей сессии',
@@ -82,13 +83,39 @@ const HELP = [
   '/stop — остановить задачу текущей сессии',
 ].join('\n');
 
+const GUIDE = [
+  '<b>Сессии vs Проекты</b>',
+  '',
+  '📁 <b>Проект</b> — папка на диске (<code>~/projects/имя</code>), рабочая директория, где Claude пишет код, правит файлы, гоняет тесты. Это <i>где</i> агент работает.',
+  '',
+  '🗂 <b>Сессия</b> — отдельный «чат» с Claude со своим накопленным контекстом диалога. Это <i>с кем</i> ты сейчас разговариваешь. У каждой сессии своё: история диалога, модель (/model), effort (/effort), режим (/mode) и указатель на проект.',
+  '',
+  '<b>Связь:</b> сессия содержит проект. Разные сессии могут смотреть в одну папку или в разные.',
+  '',
+  '<b>Сценарий агент↔валидатор:</b> заводишь 2 сессии («агент» и «валидатор») в одном проекте — они видят одни файлы, но это два независимых диалога. Отчёт агента шлёшь валидатору кнопкой «↪️ Переслать в…», ответ — обратно.',
+  '',
+  '<b>Переключение:</b>',
+  '• сменил проект у сессии → поменялась папка, контекст диалога сбрасывается (новая папка = новый разговор);',
+  '• сменил сессию → переключился на другой живой диалог, контекст каждого хранится параллельно.',
+  '',
+  'Короче: <b>проект</b> — это папка (<code>cd</code>), <b>сессия</b> — это вкладка Claude Code, открытая в этой папке.',
+].join('\n');
+
+const showSessions = (ctx: Context, chat: ChatState) =>
+  ctx.reply('🗂 <b>Сессии</b> — отдельные диалоги с Claude (свой контекст, модель, effort, режим, проект). Переключение не прерывает работу. Подробнее: /guide', { parse_mode: 'HTML', reply_markup: sessionsKb(chat) });
+
+const showProjects = (ctx: Context) =>
+  ctx.reply('📁 <b>Проекты</b> — рабочие папки (<code>~/projects</code>), где Claude выполняет код. Проект привязан к текущей сессии. Подробнее: /guide', { parse_mode: 'HTML', reply_markup: projectsKb(listProjects()) });
+
 bot.command(['start', 'help', 'menu'], (ctx) => ctx.reply(HELP, { reply_markup: bottomKb() }));
+
+bot.command('guide', (ctx) => ctx.reply(GUIDE, { parse_mode: 'HTML' }));
 
 // Обработка нажатий нижней клавиатуры (reply keyboard шлёт текст метки).
 async function handleBottom(ctx: Context, chat: ChatState, label: string): Promise<void> {
   switch (label) {
-    case BOTTOM.sessions: await ctx.reply('Сессии:', { reply_markup: sessionsKb(chat) }); break;
-    case BOTTOM.projects: await ctx.reply('Проекты (~/projects):', { reply_markup: projectsKb(listProjects()) }); break;
+    case BOTTOM.sessions: await showSessions(ctx, chat); break;
+    case BOTTOM.projects: await showProjects(ctx); break;
     case BOTTOM.model: await ctx.reply('Модель текущей сессии:', { reply_markup: modelKb() }); break;
     case BOTTOM.effort: await ctx.reply('Глубина рассуждений (больше = умнее и дороже):', { reply_markup: effortKb() }); break;
     case BOTTOM.mode: await ctx.reply('Режим текущей сессии:', { reply_markup: modeKb() }); break;
@@ -107,10 +134,7 @@ async function handleBottom(ctx: Context, chat: ChatState, label: string): Promi
   }
 }
 
-bot.command('sessions', (ctx) => {
-  const chat = getChat(state, ctx.chat.id);
-  return ctx.reply('Сессии:', { reply_markup: sessionsKb(chat) });
-});
+bot.command('sessions', (ctx) => showSessions(ctx, getChat(state, ctx.chat.id)));
 
 bot.command('reset', (ctx) => {
   const chat = getChat(state, ctx.chat.id);
@@ -119,7 +143,7 @@ bot.command('reset', (ctx) => {
   return ctx.reply(`${sessionTag(chat.current)}: контекст сброшен, следующее сообщение начнёт новый диалог.`, { parse_mode: 'HTML' });
 });
 
-bot.command('projects', (ctx) => ctx.reply('Проекты (~/projects):', { reply_markup: projectsKb(listProjects()) }));
+bot.command('projects', (ctx) => showProjects(ctx));
 
 bot.command('model', (ctx) => ctx.reply('Модель текущей сессии:', { reply_markup: modelKb() }));
 
@@ -224,8 +248,8 @@ bot.on('callback_query:data', async (ctx) => {
     saveState(state);
     await ctx.reply('Отменено.');
   } else if (kind === 'menu') {
-    if (arg === 'sessions') await ctx.reply('Сессии:', { reply_markup: sessionsKb(chat) });
-    else if (arg === 'projects') await ctx.reply('Проекты (~/projects):', { reply_markup: projectsKb(listProjects()) });
+    if (arg === 'sessions') await showSessions(ctx, chat);
+    else if (arg === 'projects') await showProjects(ctx);
     else if (arg === 'model') await ctx.reply('Модель текущей сессии:', { reply_markup: modelKb() });
     else if (arg === 'effort') await ctx.reply('Глубина рассуждений (больше = умнее и дороже):', { reply_markup: effortKb() });
     else if (arg === 'mode') await ctx.reply('Режим текущей сессии:', { reply_markup: modeKb() });
@@ -305,6 +329,7 @@ bot.catch((err) => console.error('bot error:', err.error));
 
 await bot.api.setMyCommands([
   { command: 'menu', description: '📋 Меню с кнопками' },
+  { command: 'guide', description: 'Что такое сессии и проекты' },
   { command: 'sessions', description: 'Сессии: переключить/создать' },
   { command: 'status', description: 'Статус всех сессий' },
   { command: 'projects', description: 'Проект текущей сессии' },
