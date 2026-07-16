@@ -80,6 +80,15 @@ export class TaskManager {
     return pidAlive(taskId);
   }
 
+  // 'working' = a turn is in progress; 'waiting' = answered, holding the session for a
+  // follow-up (or waiting out a subscription limit); 'idle' = finished / not running.
+  taskState(taskId: string): 'working' | 'waiting' | 'idle' {
+    const events = readEvents(taskId);
+    const last = events[events.length - 1];
+    if (!last || last.type === 'done' || last.type === 'error' || !pidAlive(taskId)) return 'idle';
+    return (last.type === 'turn_done' || last.type === 'limit_wait') ? 'waiting' : 'working';
+  }
+
   lastReport(taskId: string): string | null {
     const events = readEvents(taskId);
     for (let i = events.length - 1; i >= 0; i--) {
@@ -102,12 +111,13 @@ export class TaskManager {
     } catch { /* status is best-effort */ }
 
     const recent: TaskEvent[] = [];
+    let phase: 'working' | 'waiting' = 'working';
     const throttler = new Throttler(3000);
     const updateStatus = () => {
       if (statusId === null) return;
       const id = statusId;
       throttler.schedule(async () => {
-        await this.api.editMessageText(chatId, id, renderStatus(meta.sessionName, recent, Date.now(), meta.startedAt), { parse_mode: 'HTML', reply_markup: stopKb(taskId) }).catch(() => {});
+        await this.api.editMessageText(chatId, id, renderStatus(meta.sessionName, recent, Date.now(), meta.startedAt, phase), { parse_mode: 'HTML', reply_markup: stopKb(taskId) }).catch(() => {});
       });
     };
     const heartbeat = setInterval(updateStatus, 60_000);
@@ -123,6 +133,7 @@ export class TaskManager {
         const isHistory = idx <= processed;
         recent.push(ev);
         if (recent.length > 20) recent.shift();
+        if (ev.type === 'tool' || ev.type === 'text' || ev.type === 'inject' || ev.type === 'init') phase = 'working';
         if (ev.type === 'init') {
           const s = this.findSession(meta);
           if (s) { s.claudeSessionId = ev.sessionId; saveState(this.state); }
@@ -136,7 +147,9 @@ export class TaskManager {
           if (ev.type === 'turn_done') {
             if (ev.text.trim()) await this.sendFinal(chatId, meta.sessionName, taskId, ev.text);
             recent.length = 0; // reset the live status so the next turn starts clean
+            phase = 'waiting';  // answered; now just holding the session for a follow-up
           } else if (ev.type === 'limit_wait') {
+            phase = 'waiting';
             await this.api.sendMessage(chatId, renderStatus(meta.sessionName, [ev], Date.now(), meta.startedAt), { parse_mode: 'HTML' }).catch(() => {});
           }
           updateStatus();

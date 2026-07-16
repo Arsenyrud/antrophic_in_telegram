@@ -54,7 +54,8 @@ function cur(chat: ChatState): Session {
 function statusText(chat: ChatState): string {
   return Object.values(chat.sessions).map((s) => {
     const mark = s.name === chat.current ? '👉' : '·';
-    const run = tm.isRunning(s) ? '🟢 работает' : '⚪ ожидает';
+    const st = s.activeTaskId ? tm.taskState(s.activeTaskId) : 'idle';
+    const run = st === 'working' ? '🟢 работает' : st === 'waiting' ? '🟡 ответила, ждёт продолжения' : '⚪ ожидает';
     const brain = `${modelLabel(s.model)} · effort ${effortLabel(s.effort)}`;
     const sid = s.claudeSessionId ? `\n   resume: <code>${s.claudeSessionId}</code>` : '';
     return `${mark} <b>${escapeHtml(s.name)}</b> — ${run}\n   📁 ${escapeHtml(s.cwd)}\n   🧠 ${escapeHtml(brain)} · ${s.mode === 'plan' ? '📋 план' : '🚀 авто'}${sid}`;

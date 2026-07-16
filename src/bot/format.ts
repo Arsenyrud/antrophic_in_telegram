@@ -32,9 +32,13 @@ function eventLine(ev: TaskEvent): string | null {
   }
 }
 
-export function renderStatus(sessionName: string, events: TaskEvent[], now: number, startedAt: number): string {
+export function renderStatus(
+  sessionName: string, events: TaskEvent[], now: number, startedAt: number,
+  phase: 'working' | 'waiting' = 'working',
+): string {
   const lines = events.map(eventLine).filter((l): l is string => l !== null).slice(-3);
-  const header = `${sessionTag(sessionName)} · работает · ${fmtDuration(now - startedAt)}`;
+  const label = phase === 'waiting' ? 'ответила · ждёт продолжения' : 'работает';
+  const header = `${sessionTag(sessionName)} · ${label} · ${fmtDuration(now - startedAt)}`;
   return [header, ...lines].join('\n');
 }
 
