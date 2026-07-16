@@ -4,7 +4,9 @@ import type { ChatState } from '../types.js';
 export function sessionsKb(chat: ChatState): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const name of Object.keys(chat.sessions)) {
-    kb.text(name === chat.current ? `✅ ${name}` : name, `sess:${name}`).row();
+    kb.text(name === chat.current ? `✅ ${name}` : name, `sess:${name}`);
+    if (name !== 'main') kb.text('🗑', `sessdel:${name}`);
+    kb.row();
   }
   return kb.text('➕ новая сессия', 'sess:new');
 }
@@ -56,5 +58,23 @@ export function forwardTargetsKb(taskId: string, sessionNames: string[], from: s
 }
 
 export function noCommentKb(taskId: string, to: string): InlineKeyboard {
-  return new InlineKeyboard().text('Отправить без комментария', `fwdgo:${taskId}:${to}`);
+  return new InlineKeyboard()
+    .text('Отправить без комментария', `fwdgo:${taskId}:${to}`).row()
+    .text('✖️ Отмена', 'cancel');
+}
+
+export function cancelKb(): InlineKeyboard {
+  return new InlineKeyboard().text('✖️ Отмена', 'cancel');
+}
+
+export function mainMenuKb(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('🗂 Сессии', 'menu:sessions').text('📁 Проекты', 'menu:projects').row()
+    .text('🧠 Модель', 'menu:model').text('🎚 Effort', 'menu:effort').row()
+    .text('🚀 Режим', 'menu:mode').text('📊 Статус', 'menu:status').row()
+    .text('🔄 Сброс контекста', 'menu:reset').text('⏹ Стоп', 'menu:stop');
+}
+
+export function stopKb(taskId: string): InlineKeyboard {
+  return new InlineKeyboard().text('⏹ Остановить', `stop:${taskId}`);
 }

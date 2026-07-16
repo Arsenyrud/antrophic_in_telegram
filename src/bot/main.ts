@@ -6,7 +6,7 @@ import { ensureDir, projectsDir, tasksRoot } from '../paths.js';
 import { defaultSession, getChat, loadState, readTaskMeta, saveState } from '../state.js';
 import type { ChatState, Session, TaskEvent } from '../types.js';
 import { composeForward, sessionTag } from './format.js';
-import { effortKb, forwardTargetsKb, modeKb, modelKb, MODELS, noCommentKb, projectsKb, sessionsKb } from './keyboards.js';
+import { cancelKb, effortKb, forwardTargetsKb, mainMenuKb, modeKb, modelKb, MODELS, noCommentKb, projectsKb, sessionsKb } from './keyboards.js';
 import { TaskManager } from './tasks.js';
 import { escapeHtml } from '../markdown.js';
 import type { Effort } from '../types.js';
@@ -35,8 +35,29 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
+// Слэш-команда отменяет незавершённый ввод (имя сессии/проекта, комментарий к пересылке),
+// иначе следующее обычное сообщение будет ошибочно съедено как этот ввод.
+bot.use(async (ctx, next) => {
+  const t = ctx.message?.text;
+  if (t && t.startsWith('/') && ctx.chat) {
+    const chat = getChat(state, ctx.chat.id);
+    if (chat.pending) { chat.pending = undefined; saveState(state); }
+  }
+  await next();
+});
+
 function cur(chat: ChatState): Session {
   return chat.sessions[chat.current];
+}
+
+function statusText(chat: ChatState): string {
+  return Object.values(chat.sessions).map((s) => {
+    const mark = s.name === chat.current ? '👉' : '·';
+    const run = tm.isRunning(s) ? '🟢 работает' : '⚪ ожидает';
+    const brain = `${modelLabel(s.model)} · effort ${s.effort ?? 'дефолт'}`;
+    const sid = s.claudeSessionId ? `\n   resume: <code>${s.claudeSessionId}</code>` : '';
+    return `${mark} <b>${escapeHtml(s.name)}</b> — ${run}\n   📁 ${escapeHtml(s.cwd)}\n   🧠 ${escapeHtml(brain)} · ${s.mode === 'plan' ? '📋 план' : '🚀 авто'}${sid}`;
+  }).join('\n\n');
 }
 
 function listProjects(): string[] {
@@ -48,6 +69,7 @@ function listProjects(): string[] {
 const HELP = [
   'Пиши текст — это задача для Claude в текущей сессии.',
   'Если задача сессии уже работает, текст впрыснется в неё.',
+  'Ниже — кнопки меню; всё то же есть и командами:',
   '',
   '/sessions — сессии (переключение, создание)',
   '/reset — новый диалог Claude в текущей сессии',
@@ -59,7 +81,7 @@ const HELP = [
   '/stop — остановить задачу текущей сессии',
 ].join('\n');
 
-bot.command(['start', 'help'], (ctx) => ctx.reply(HELP));
+bot.command(['start', 'help', 'menu'], (ctx) => ctx.reply(HELP, { reply_markup: mainMenuKb() }));
 
 bot.command('sessions', (ctx) => {
   const chat = getChat(state, ctx.chat.id);
@@ -81,17 +103,7 @@ bot.command('effort', (ctx) => ctx.reply('Глубина рассуждений 
 
 bot.command('mode', (ctx) => ctx.reply('Режим текущей сессии:', { reply_markup: modeKb() }));
 
-bot.command('status', (ctx) => {
-  const chat = getChat(state, ctx.chat.id);
-  const lines = Object.values(chat.sessions).map((s) => {
-    const mark = s.name === chat.current ? '👉' : '·';
-    const run = tm.isRunning(s) ? '🟢 работает' : '⚪ ожидает';
-    const brain = `${modelLabel(s.model)} · effort ${s.effort ?? 'дефолт'}`;
-    const sid = s.claudeSessionId ? `\n   resume: <code>${s.claudeSessionId}</code>` : '';
-    return `${mark} <b>${escapeHtml(s.name)}</b> — ${run}\n   📁 ${escapeHtml(s.cwd)}\n   🧠 ${escapeHtml(brain)} · ${s.mode === 'plan' ? '📋 план' : '🚀 авто'}${sid}`;
-  });
-  return ctx.reply(lines.join('\n\n'), { parse_mode: 'HTML' });
-});
+bot.command('status', (ctx) => ctx.reply(statusText(getChat(state, ctx.chat.id)), { parse_mode: 'HTML' }));
 
 bot.command('stop', (ctx) => {
   const chat = getChat(state, ctx.chat.id);
@@ -111,17 +123,27 @@ bot.on('callback_query:data', async (ctx) => {
     if (arg === 'new') {
       chat.pending = { kind: 'new-session' };
       saveState(state);
-      await ctx.reply('Имя новой сессии (до 16 символов, буквы/цифры/-/_):');
+      await ctx.reply('Имя новой сессии (до 16 символов, буквы/цифры/-/_):', { reply_markup: cancelKb() });
     } else if (chat.sessions[arg]) {
       chat.current = arg;
       saveState(state);
       await ctx.reply(`Текущая сессия: ${sessionTag(arg)}`, { parse_mode: 'HTML' });
     }
+  } else if (kind === 'sessdel') {
+    if (arg === 'main') await ctx.reply('Сессию main удалить нельзя.');
+    else if (!chat.sessions[arg]) await ctx.reply('Такой сессии уже нет.');
+    else if (tm.isRunning(chat.sessions[arg])) await ctx.reply(`${sessionTag(arg)}: сначала останови задачу (/stop).`, { parse_mode: 'HTML' });
+    else {
+      delete chat.sessions[arg];
+      if (chat.current === arg) chat.current = 'main';
+      saveState(state);
+      await ctx.reply(`Сессия «${escapeHtml(arg)}» удалена. Текущая: ${sessionTag(chat.current)}`, { parse_mode: 'HTML' });
+    }
   } else if (kind === 'proj') {
     if (arg === 'new') {
       chat.pending = { kind: 'new-project' };
       saveState(state);
-      await ctx.reply('Имя нового проекта (папки):');
+      await ctx.reply('Имя нового проекта (папки):', { reply_markup: cancelKb() });
     } else {
       const dir = listProjects()[Number(arg)];
       if (!dir) {
@@ -168,6 +190,29 @@ bot.on('callback_query:data', async (ctx) => {
       s.claudeSessionId = initEv?.sessionId ?? s.claudeSessionId;
       saveState(state);
       await tm.startTask(ctx.chat!.id, s, 'Продолжай выполнение прерванной задачи с того места, где остановился.');
+    }
+  } else if (kind === 'stop') {
+    if (tm.taskRunning(arg)) { tm.requestStop(arg); await ctx.reply('⏹ Останавливаю…'); }
+    else await ctx.reply('Эта задача уже не выполняется.');
+  } else if (kind === 'cancel') {
+    chat.pending = undefined;
+    saveState(state);
+    await ctx.reply('Отменено.');
+  } else if (kind === 'menu') {
+    if (arg === 'sessions') await ctx.reply('Сессии:', { reply_markup: sessionsKb(chat) });
+    else if (arg === 'projects') await ctx.reply('Проекты (~/projects):', { reply_markup: projectsKb(listProjects()) });
+    else if (arg === 'model') await ctx.reply('Модель текущей сессии:', { reply_markup: modelKb() });
+    else if (arg === 'effort') await ctx.reply('Глубина рассуждений (больше = умнее и дороже):', { reply_markup: effortKb() });
+    else if (arg === 'mode') await ctx.reply('Режим текущей сессии:', { reply_markup: modeKb() });
+    else if (arg === 'status') await ctx.reply(statusText(chat), { parse_mode: 'HTML' });
+    else if (arg === 'reset') {
+      cur(chat).claudeSessionId = null;
+      saveState(state);
+      await ctx.reply(`${sessionTag(chat.current)}: контекст сброшен, следующее сообщение начнёт новый диалог.`, { parse_mode: 'HTML' });
+    } else if (arg === 'stop') {
+      const s = cur(chat);
+      if (s.activeTaskId && tm.isRunning(s)) { tm.requestStop(s.activeTaskId); await ctx.reply(`${sessionTag(s.name)}: останавливаю…`, { parse_mode: 'HTML' }); }
+      else await ctx.reply('Нет активной задачи в текущей сессии.');
     }
   }
   await ctx.answerCallbackQuery();
@@ -227,6 +272,7 @@ bot.on('message:text', async (ctx) => {
 bot.catch((err) => console.error('bot error:', err.error));
 
 await bot.api.setMyCommands([
+  { command: 'menu', description: '📋 Меню с кнопками' },
   { command: 'sessions', description: 'Сессии: переключить/создать' },
   { command: 'status', description: 'Статус всех сессий' },
   { command: 'projects', description: 'Проект текущей сессии' },
@@ -240,4 +286,6 @@ await bot.api.setMyCommands([
 
 await tm.reattachAll();
 console.log('tg-claude bot started');
-await bot.start();
+// drop_pending_updates: не переигрывать очередь старых апдейтов после рестарта/деплоя
+// (иначе накопленные команды дублируют ответы).
+await bot.start({ drop_pending_updates: true });

@@ -8,8 +8,11 @@ import { cursorFile, ensureDir, inboxDir, pidFile, reportedFile, stopFile, tasks
 import { readTaskMeta, saveState, writeTaskMeta } from '../state.js';
 import type { Session, State, TaskEvent, TaskMeta } from '../types.js';
 import { fmtDuration, renderFinalHeader, renderStatus, sessionTag } from './format.js';
+import { stopKb } from './keyboards.js';
 import { spawnRunner } from './spawn.js';
 import { Throttler } from './throttle.js';
+
+const EMPTY_KB = { inline_keyboard: [] as never[] };
 
 function newTaskId(): string {
   return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -68,11 +71,14 @@ export class TaskManager {
   }
 
   isRunning(session: Session): boolean {
-    if (!session.activeTaskId) return false;
-    const events = readEvents(session.activeTaskId);
+    return session.activeTaskId ? this.taskRunning(session.activeTaskId) : false;
+  }
+
+  taskRunning(taskId: string): boolean {
+    const events = readEvents(taskId);
     const last = events[events.length - 1];
     if (last && (last.type === 'done' || last.type === 'error')) return false;
-    return pidAlive(session.activeTaskId);
+    return pidAlive(taskId);
   }
 
   lastReport(taskId: string): string | null {
@@ -92,7 +98,7 @@ export class TaskManager {
     const { taskId, chatId } = meta;
     let statusId: number | null = null;
     try {
-      const m = await this.api.sendMessage(chatId, renderStatus(meta.sessionName, [], Date.now(), meta.startedAt), { parse_mode: 'HTML' });
+      const m = await this.api.sendMessage(chatId, renderStatus(meta.sessionName, [], Date.now(), meta.startedAt), { parse_mode: 'HTML', reply_markup: stopKb(taskId) });
       statusId = m.message_id;
     } catch { /* статус не критичен */ }
 
@@ -102,7 +108,7 @@ export class TaskManager {
       if (statusId === null) return;
       const id = statusId;
       throttler.schedule(async () => {
-        await this.api.editMessageText(chatId, id, renderStatus(meta.sessionName, recent, Date.now(), meta.startedAt), { parse_mode: 'HTML' }).catch(() => {});
+        await this.api.editMessageText(chatId, id, renderStatus(meta.sessionName, recent, Date.now(), meta.startedAt), { parse_mode: 'HTML', reply_markup: stopKb(taskId) }).catch(() => {});
       });
     };
     const heartbeat = setInterval(updateStatus, 60_000);
@@ -170,11 +176,11 @@ export class TaskManager {
     writeFileSync(reportedFile(taskId), '');
     const tag = sessionTag(meta.sessionName);
     if (last?.type === 'done') {
-      if (statusId !== null) await this.api.editMessageText(chatId, statusId, `${tag} · ✅ завершено · ${dur}`, { parse_mode: 'HTML' }).catch(() => {});
+      if (statusId !== null) await this.api.editMessageText(chatId, statusId, `${tag} · ✅ завершено · ${dur}`, { parse_mode: 'HTML', reply_markup: EMPTY_KB }).catch(() => {});
     } else {
       const reason = last?.type === 'error' ? `ошибка:\n<pre>${escapeHtml(last.message.slice(0, 500))}</pre>` : 'процесс задачи умер (возможно, OOM или ребут)';
       const kb = new InlineKeyboard().text('▶️ Продолжить', `cont:${taskId}`);
-      if (statusId !== null) await this.api.editMessageText(chatId, statusId, `${tag} · ❌ прервано · ${dur}`, { parse_mode: 'HTML' }).catch(() => {});
+      if (statusId !== null) await this.api.editMessageText(chatId, statusId, `${tag} · ❌ прервано · ${dur}`, { parse_mode: 'HTML', reply_markup: EMPTY_KB }).catch(() => {});
       await this.api.sendMessage(chatId, `${tag} · ${reason}`, { parse_mode: 'HTML', reply_markup: kb }).catch(() => {});
     }
   }
