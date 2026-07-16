@@ -63,7 +63,10 @@ async function runOnce(): Promise<Outcome> {
         if (msg.subtype === 'success') {
           ev({ type: 'turn_done', text: msg.result ?? '', costUsd: msg.total_cost_usd ?? null, turns: msg.num_turns ?? 0 });
         } else {
-          failure = `result:${msg.subtype}`;
+          // Достаём максимум текста, чтобы распознать лимит подписки (иначе теряется в subtype).
+          const detail = msg.result ?? msg.error ?? msg.message ?? (msg.errors ? JSON.stringify(msg.errors) : '');
+          console.error('[runner] non-success result:', JSON.stringify(msg).slice(0, 800));
+          failure = detail ? String(detail) : `result:${msg.subtype}`;
         }
       }
       if (existsSync(stopFile(taskId))) { ctrl.closed = true; }
@@ -85,8 +88,12 @@ try {
     if (outcome.kind === 'limit') {
       const resetAt = parseResetTime(outcome.message) ?? null;
       ev({ type: 'limit_wait', resetAt });
-      const waitMs = Math.min(Math.max((resetAt ?? 0) - Date.now(), 15 * 60_000), 6 * 3600_000);
-      await sleep(waitMs);
+      const waitUntil = Date.now() + Math.min(Math.max((resetAt ?? 0) - Date.now(), 15 * 60_000), 6 * 3600_000);
+      // Спим до сброса окна, но реагируем на /stop, а не игнорируем его часами.
+      while (Date.now() < waitUntil) {
+        if (existsSync(stopFile(taskId))) { ev({ type: 'done' }); process.exit(0); }
+        await sleep(Math.min(5000, waitUntil - Date.now()));
+      }
       resumeId = latestSessionId;
       prompt = 'Продолжай выполнение прерванной задачи с того места, где остановился.';
       continue;

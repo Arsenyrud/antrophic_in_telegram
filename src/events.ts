@@ -24,18 +24,33 @@ export function readEvents(taskId: string): TaskEvent[] {
 
 const TERMINAL = new Set(['done', 'error']);
 
+/**
+ * Тейлит events.jsonl. Завершается:
+ *  - на терминальном событии (done/error);
+ *  - если задан isAlive и раннер мёртв: после одного «grace»-опроса без новых
+ *    байт (защита от гонки, когда done дописывается ровно в момент смерти pid);
+ *  - если задан isAlive, раннер так и не ожил и прошло startupMs (спавн упал).
+ * Без isAlive поведение прежнее — крутится, пока не встретит done/error.
+ */
 export async function* tailEvents(
   taskId: string,
-  opts: { pollMs?: number } = {},
+  opts: { pollMs?: number; isAlive?: () => boolean; startupMs?: number } = {},
 ): AsyncGenerator<TaskEvent> {
   const pollMs = opts.pollMs ?? 500;
+  const startupMs = opts.startupMs ?? 30_000;
+  const isAlive = opts.isAlive;
+  const startedAt = Date.now();
   const file = eventsFile(taskId);
   let offset = 0;
   let carry = '';
+  let everAlive = false;
+  let deadPolls = 0;
   while (true) {
+    let grew = false;
     if (existsSync(file)) {
       const size = statSync(file).size;
       if (size > offset) {
+        grew = true;
         const fd = openSync(file, 'r');
         const buf = Buffer.alloc(size - offset);
         readSync(fd, buf, 0, buf.length, offset);
@@ -49,6 +64,19 @@ export async function* tailEvents(
           yield ev;
           if (TERMINAL.has(ev.type)) return;
         }
+      }
+    }
+    if (isAlive) {
+      const alive = isAlive();
+      if (alive) everAlive = true;
+      if (grew) {
+        deadPolls = 0;
+      } else if (everAlive && !alive) {
+        if (++deadPolls >= 2) return; // раннер жил и умер, дозаписей нет
+      } else if (!everAlive && Date.now() - startedAt > startupMs) {
+        return; // раннер так и не стартовал
+      } else {
+        deadPolls = 0;
       }
     }
     await new Promise((r) => setTimeout(r, pollMs));

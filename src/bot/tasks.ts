@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import type { Api } from 'grammy';
 import { InlineKeyboard } from 'grammy';
 import { readEvents, tailEvents } from '../events.js';
-import { mdToTelegramChunks } from '../markdown.js';
-import { ensureDir, inboxDir, pidFile, reportedFile, stopFile, tasksRoot } from '../paths.js';
+import { escapeHtml, mdToTelegramChunks } from '../markdown.js';
+import { cursorFile, ensureDir, inboxDir, pidFile, reportedFile, stopFile, tasksRoot } from '../paths.js';
 import { readTaskMeta, saveState, writeTaskMeta } from '../state.js';
 import type { Session, State, TaskEvent, TaskMeta } from '../types.js';
 import { fmtDuration, renderFinalHeader, renderStatus, sessionTag } from './format.js';
@@ -15,13 +15,24 @@ function newTaskId(): string {
   return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
+let injectSeq = 0;
+
+function readCursor(taskId: string): number {
+  try { return Number(readFileSync(cursorFile(taskId), 'utf8').trim()) || 0; } catch { return 0; }
+}
+function writeCursor(taskId: string, n: number): void {
+  try { writeFileSync(cursorFile(taskId), String(n)); } catch { /* не критично */ }
+}
+
 export function pidAlive(taskId: string): boolean {
+  let pid: number;
+  try { pid = Number(readFileSync(pidFile(taskId), 'utf8').trim()); } catch { return false; }
+  if (!pid) return false;
+  // На Linux сверяем cmdline: после ребута PID мог переиспользоваться чужим процессом.
   try {
-    const pid = Number(readFileSync(pidFile(taskId), 'utf8').trim());
-    process.kill(pid, 0);
-    return true;
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(taskId);
   } catch {
-    return false;
+    try { process.kill(pid, 0); return true; } catch { return false; }
   }
 }
 
@@ -45,7 +56,10 @@ export class TaskManager {
 
   inject(taskId: string, text: string): void {
     ensureDir(inboxDir(taskId));
-    writeFileSync(join(inboxDir(taskId), `${Date.now()}.txt`), text);
+    // Date.now()+счётчик, чтобы два впрыска в одну миллисекунду не перезатёрли друг друга;
+    // порядок сохраняется (drainInbox сортирует лексикографически, seq дополнен нулями).
+    const name = `${Date.now()}-${String(injectSeq++).padStart(6, '0')}.txt`;
+    writeFileSync(join(inboxDir(taskId), name), text);
   }
 
   requestStop(taskId: string): void {
@@ -93,41 +107,57 @@ export class TaskManager {
     };
     const heartbeat = setInterval(updateStatus, 60_000);
 
+    // Курсор доставки: сколько событий уже обработано (доставлено пользователю).
+    // При рестарте бота reattach не переотправляет ранее показанные отчёты.
+    let processed = readCursor(taskId);
+    let idx = 0;
+
     try {
-      for await (const ev of tailEvents(taskId)) {
+      for await (const ev of tailEvents(taskId, { isAlive: () => pidAlive(taskId) })) {
+        idx++;
+        const isHistory = idx <= processed;
         recent.push(ev);
         if (recent.length > 20) recent.shift();
         if (ev.type === 'init') {
           const s = this.findSession(meta);
           if (s) { s.claudeSessionId = ev.sessionId; saveState(this.state); }
-        } else if (ev.type === 'turn_done') {
-          if (ev.text.trim()) await this.sendFinal(chatId, meta.sessionName, taskId, ev.text);
-        } else if (ev.type === 'limit_wait') {
-          await this.api.sendMessage(chatId, renderStatus(meta.sessionName, [ev], Date.now(), meta.startedAt), { parse_mode: 'HTML' }).catch(() => {});
-        } else if (ev.type === 'done' || ev.type === 'error') {
+        }
+        if (ev.type === 'done' || ev.type === 'error') {
+          writeCursor(taskId, idx);
           await this.finalize(meta, statusId, ev);
           return;
         }
-        updateStatus();
+        if (!isHistory) {
+          if (ev.type === 'turn_done') {
+            if (ev.text.trim()) await this.sendFinal(chatId, meta.sessionName, taskId, ev.text);
+          } else if (ev.type === 'limit_wait') {
+            await this.api.sendMessage(chatId, renderStatus(meta.sessionName, [ev], Date.now(), meta.startedAt), { parse_mode: 'HTML' }).catch(() => {});
+          }
+          updateStatus();
+        }
+        writeCursor(taskId, idx);
       }
-      // tail закончился без done/error — раннер умер
+      // tail завершился без терминального события — раннер умер (OOM/ребут)
       await this.finalize(meta, statusId, null);
     } finally {
       clearInterval(heartbeat);
-      await throttler.flushNow();
+      throttler.cancel(); // не перезатирать финальный статус отложенным рендером «работает»
     }
   }
 
   private async sendFinal(chatId: number, sessionName: string, taskId: string, text: string): Promise<void> {
-    const chunks = mdToTelegramChunks(text);
+    const header = renderFinalHeader(sessionName);
+    // Резервируем место под заголовок ДО нарезки, чтобы первый кусок + заголовок не превысил 4096.
+    const chunks = mdToTelegramChunks(text, Math.max(512, 4096 - header.length - 2));
     const kb = new InlineKeyboard().text('↪️ Переслать в…', `fwd:${taskId}`);
     for (let i = 0; i < chunks.length; i++) {
       const isLast = i === chunks.length - 1;
-      const body = i === 0 ? `${renderFinalHeader(sessionName)}\n\n${chunks[i]}` : chunks[i];
+      const body = i === 0 ? `${header}\n\n${chunks[i]}` : chunks[i];
       try {
         await this.api.sendMessage(chatId, body, { parse_mode: 'HTML', ...(isLast ? { reply_markup: kb } : {}) });
       } catch {
-        await this.api.sendMessage(chatId, body.replace(/<[^>]+>/g, ''), isLast ? { reply_markup: kb } : {}).catch(() => {});
+        const plain = body.replace(/<[^>]+>/g, '').slice(0, 4096);
+        await this.api.sendMessage(chatId, plain, isLast ? { reply_markup: kb } : {}).catch(() => {});
       }
     }
   }
@@ -142,7 +172,7 @@ export class TaskManager {
     if (last?.type === 'done') {
       if (statusId !== null) await this.api.editMessageText(chatId, statusId, `${tag} · ✅ завершено · ${dur}`, { parse_mode: 'HTML' }).catch(() => {});
     } else {
-      const reason = last?.type === 'error' ? `ошибка:\n<pre>${last.message.slice(0, 500)}</pre>` : 'процесс задачи умер (возможно, OOM или ребут)';
+      const reason = last?.type === 'error' ? `ошибка:\n<pre>${escapeHtml(last.message.slice(0, 500))}</pre>` : 'процесс задачи умер (возможно, OOM или ребут)';
       const kb = new InlineKeyboard().text('▶️ Продолжить', `cont:${taskId}`);
       if (statusId !== null) await this.api.editMessageText(chatId, statusId, `${tag} · ❌ прервано · ${dur}`, { parse_mode: 'HTML' }).catch(() => {});
       await this.api.sendMessage(chatId, `${tag} · ${reason}`, { parse_mode: 'HTML', reply_markup: kb }).catch(() => {});

@@ -55,7 +55,18 @@ export async function* makeInputStream(opts: {
       turn.lastActivity = Date.now();
       yield userMsg(text);
     }
-    if (!turn.active && Date.now() - turn.lastActivity > idleMs) return;
+    if (!turn.active && Date.now() - turn.lastActivity > idleMs) {
+      // Последний drain перед закрытием: сообщение, записанное ботом ровно на границе
+      // простоя (бот уже подтвердил доставку), не должно потеряться.
+      const leftover = drainInbox(taskId);
+      if (leftover.length === 0) return;
+      for (const text of leftover) {
+        opts.onInject?.(text);
+        turn.active = true;
+        turn.lastActivity = Date.now();
+        yield userMsg(text);
+      }
+    }
     await new Promise((r) => setTimeout(r, pollMs));
   }
 }

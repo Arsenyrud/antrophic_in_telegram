@@ -116,10 +116,15 @@ bot.on('callback_query:data', async (ctx) => {
       saveState(state);
       await ctx.reply('Имя нового проекта (папки):');
     } else {
-      cur(chat).cwd = join(projectsDir(), arg);
-      cur(chat).claudeSessionId = null;
-      saveState(state);
-      await ctx.reply(`${sessionTag(chat.current)}: проект → <code>${escapeHtml(arg)}</code> (контекст сброшен)`, { parse_mode: 'HTML' });
+      const dir = listProjects()[Number(arg)];
+      if (!dir) {
+        await ctx.reply('Список проектов изменился — открой /projects заново.');
+      } else {
+        cur(chat).cwd = join(projectsDir(), dir);
+        cur(chat).claudeSessionId = null;
+        saveState(state);
+        await ctx.reply(`${sessionTag(chat.current)}: проект → <code>${escapeHtml(dir)}</code> (контекст сброшен)`, { parse_mode: 'HTML' });
+      }
     }
   } else if (kind === 'model') {
     cur(chat).model = arg === 'default' ? null : arg;
@@ -146,6 +151,7 @@ bot.on('callback_query:data', async (ctx) => {
     const meta = readTaskMeta(arg);
     const s = chat.sessions[meta.sessionName];
     if (!s) { await ctx.reply('Сессия этой задачи уже удалена.'); }
+    else if (tm.isRunning(s)) { await ctx.reply(`${sessionTag(s.name)}: задача уже выполняется.`, { parse_mode: 'HTML' }); }
     else {
       const initEv = [...readEvents(arg)].reverse().find((e): e is Extract<TaskEvent, { type: 'init' }> => e.type === 'init');
       s.claudeSessionId = initEv?.sessionId ?? s.claudeSessionId;

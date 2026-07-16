@@ -48,3 +48,25 @@ test('stream closes after idle when no turn is active', async () => {
   expect(got).toEqual(['x']);
   expect(Date.now() - started).toBeLessThan(2000);
 });
+
+test('a message written exactly at the idle boundary is not lost (final drain)', async () => {
+  ensureDir(taskDir('t6'));
+  const turn: TurnState = { active: false, lastActivity: Date.now() };
+  const ctrl: StreamCtrl = { closed: false };
+  const it = makeInputStream({ taskId: 't6', prompt: 'x', turn, ctrl, pollMs: 15, idleMs: 40 });
+  const got: string[] = [];
+  let dropped = false;
+  for await (const m of it) {
+    got.push(m.message.content as string);
+    turn.active = false;
+    turn.lastActivity = Date.now();
+    // после получения prompt имитируем «бот записал inbox ровно на границе простоя»
+    if (!dropped) {
+      dropped = true;
+      turn.lastActivity = Date.now() - 10_000; // форсируем условие простоя на следующей итерации
+      ensureDir(inboxDir('t6'));
+      writeFileSync(join(inboxDir('t6'), '9.txt'), 'на-границе');
+    }
+  }
+  expect(got).toEqual(['x', 'на-границе']); // финальный drain подхватил сообщение, а не потерял
+});

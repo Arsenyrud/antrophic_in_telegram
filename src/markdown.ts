@@ -46,12 +46,25 @@ function renderCode(lang: string, body: string): string {
   return `<pre><code${cls}>${escapeHtml(body)}</code></pre>`;
 }
 
+// Наибольшая позиция разреза <= limit, не попадающая внутрь HTML-тега (<...>)
+// или сущности (&...;) — иначе получится битый HTML, который Telegram отвергнет.
+function safeCut(s: string, limit: number): number {
+  let cut = Math.min(limit, s.length);
+  const lt = s.lastIndexOf('<', cut - 1);
+  const gt = s.lastIndexOf('>', cut - 1);
+  if (lt > gt) cut = lt; // внутри открытого тега — режем до '<'
+  const amp = s.lastIndexOf('&', cut - 1);
+  const semi = s.lastIndexOf(';', cut - 1);
+  if (amp > semi && cut - amp < 12) cut = amp; // внутри &entity; — режем до '&'
+  return cut > 0 ? cut : Math.min(limit, s.length);
+}
+
 function splitText(html: string, maxLen: number): string[] {
   const out: string[] = [];
   let rest = html;
   while (rest.length > maxLen) {
     let cut = rest.lastIndexOf('\n', maxLen);
-    if (cut < maxLen * 0.3) cut = maxLen;
+    if (cut < maxLen * 0.3) cut = safeCut(rest, maxLen);
     out.push(rest.slice(0, cut));
     rest = rest.slice(cut).replace(/^\n+/, '');
   }

@@ -36,3 +36,27 @@ test('tail yields history then live events and stops on done', async () => {
   await tail;
   expect(seen).toEqual(['init', 'tool', 'done']);
 });
+
+test('tail returns when runner is dead and no terminal event was written (OOM/kill)', async () => {
+  appendEvent('t4', ev({ type: 'init', sessionId: 's' } as any));
+  appendEvent('t4', ev({ type: 'tool', name: 'Bash', detail: 'x' } as any));
+  const seen: string[] = [];
+  const started = Date.now();
+  // раннер «жив» на первых опросах, потом умирает без done/error
+  let aliveCalls = 0;
+  for await (const e of tailEvents('t4', { pollMs: 15, isAlive: () => aliveCalls++ < 2 })) {
+    seen.push(e.type);
+  }
+  expect(seen).toEqual(['init', 'tool']); // отдал историю и корректно завершился
+  expect(Date.now() - started).toBeLessThan(2000);
+});
+
+test('tail gives up if runner never starts (no pid, startupMs elapses)', async () => {
+  const started = Date.now();
+  const seen: string[] = [];
+  for await (const e of tailEvents('t5', { pollMs: 10, isAlive: () => false, startupMs: 40 })) {
+    seen.push(e.type);
+  }
+  expect(seen).toEqual([]);
+  expect(Date.now() - started).toBeLessThan(2000);
+});

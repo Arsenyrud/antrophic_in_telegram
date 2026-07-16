@@ -42,3 +42,26 @@ test('never splits inside a code block; oversized code becomes multiple pre', ()
   }
   expect(chunks.join('')).toContain('x'.repeat(100));
 });
+
+test('splitText never cuts through an HTML tag', () => {
+  // много ссылок, чтобы форсировать жёсткий разрез именно по тегам
+  const md = Array.from({ length: 40 }, (_, i) => `[ссылка номер ${i}](https://example.com/very/long/path/${i})`).join(' ');
+  const chunks = mdToTelegramChunks(md, 300);
+  expect(chunks.length).toBeGreaterThan(1);
+  for (const c of chunks) {
+    expect(c.length).toBeLessThanOrEqual(300);
+    // ни один кусок не заканчивается внутри тега: после последнего '<' есть '>'
+    const lt = c.lastIndexOf('<');
+    const gt = c.lastIndexOf('>');
+    expect(gt).toBeGreaterThanOrEqual(lt);
+  }
+});
+
+test('splitText does not cut inside an HTML entity', () => {
+  const md = '&'.repeat(200) + ' конец'; // каждый & → &amp;
+  const chunks = mdToTelegramChunks(md, 120);
+  for (const c of chunks) {
+    // не заканчивается «оборванной» сущностью вида &am
+    expect(/&[a-z]{0,6}$/.test(c)).toBe(false);
+  }
+});

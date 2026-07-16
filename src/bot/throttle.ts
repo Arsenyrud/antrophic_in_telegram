@@ -22,4 +22,10 @@ export class Throttler {
     this.lastRun = Date.now();
     try { await fn(); } catch { /* Телеграм переживёт */ }
   }
+
+  /** Отменить отложенный вызов, не выполняя его (чтобы не перезатереть финальный статус). */
+  cancel(): void {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    this.pending = null;
+  }
 }

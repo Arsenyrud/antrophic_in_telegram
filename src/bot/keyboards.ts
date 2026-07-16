@@ -9,9 +9,11 @@ export function sessionsKb(chat: ChatState): InlineKeyboard {
   return kb.text('➕ новая сессия', 'sess:new');
 }
 
+// callback_data ограничен 64 байтами, а имена папок произвольны (в т.ч. кириллица),
+// поэтому в callback кладём индекс, а имя резолвим по свежему списку при клике.
 export function projectsKb(dirs: string[]): InlineKeyboard {
   const kb = new InlineKeyboard();
-  for (const d of dirs) kb.text(d, `proj:${d}`).row();
+  dirs.forEach((d, i) => kb.text(d, `proj:${i}`).row());
   return kb.text('➕ создать проект', 'proj:new');
 }
 

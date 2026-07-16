@@ -17,6 +17,7 @@ export function inboxDir(id: string): string { return join(taskDir(id), 'inbox')
 export function inboxDoneDir(id: string): string { return join(taskDir(id), 'inbox', 'done'); }
 export function stopFile(id: string): string { return join(taskDir(id), 'stop'); }
 export function reportedFile(id: string): string { return join(taskDir(id), 'reported'); }
+export function cursorFile(id: string): string { return join(taskDir(id), 'cursor'); }
 export function pidFile(id: string): string { return join(taskDir(id), 'pid'); }
 export function runnerLogFile(id: string): string { return join(taskDir(id), 'runner.log'); }
 export function ensureDir(p: string): void { mkdirSync(p, { recursive: true }); }
