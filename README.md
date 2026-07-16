@@ -101,8 +101,6 @@ Telegram ⇄ bot (grammY, systemd) ⇄ task files ⇄ runner × N (detached)
 
 The bot and runners communicate only through files (`events.jsonl`, `inbox/`, `stop`), so tasks don't depend on the bot's lifecycle. A runner wraps the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) in streaming-input mode: user messages are injected into the live session, and subscription limits are waited out automatically.
 
-Design and plan: [`docs/superpowers/`](docs/superpowers/).
-
 ## Security
 
 - The bot replies only to `ALLOWED_USER_ID`; everyone else is ignored.
