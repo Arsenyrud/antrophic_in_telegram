@@ -10,8 +10,13 @@ ExecStart=/usr/bin/node /opt/tg-claude/dist/bot/main.js
 EnvironmentFile=/etc/tg-claude/env
 Restart=always
 RestartSec=3
-# раннеры (detached-дети) должны переживать рестарт бота:
+# Detached runners must outlive a bot restart:
 KillMode=process
+# Soft memory cap for the bot + its runners (they share this cgroup): throttle into
+# swap past the limit instead of OOM-killing — protects neighbours (VPN) without
+# killing a long task. Sized for 961M RAM; raise to ~1300M once the box is at 2G.
+MemoryAccounting=yes
+MemoryHigh=700M
 
 [Install]
 WantedBy=multi-user.target
