@@ -21,7 +21,8 @@ const TOOL_EMOJI: Record<string, string> = {
 function eventLine(ev: TaskEvent): string | null {
   switch (ev.type) {
     case 'tool': return `${TOOL_EMOJI[ev.name] ?? '⚙️'} ${escapeHtml(ev.detail || ev.name)}`;
-    case 'text': return `💬 ${escapeHtml(ev.text.slice(0, 120))}`;
+    // Assistant text is not shown in the live status — it duplicates the final report.
+    case 'text': return null;
     case 'inject': return `📨 ${escapeHtml(ev.text.slice(0, 120))}`;
     case 'limit_wait': {
       const when = ev.resetAt ? new Date(ev.resetAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'через ~15 мин';

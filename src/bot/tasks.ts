@@ -135,6 +135,7 @@ export class TaskManager {
         if (!isHistory) {
           if (ev.type === 'turn_done') {
             if (ev.text.trim()) await this.sendFinal(chatId, meta.sessionName, taskId, ev.text);
+            recent.length = 0; // reset the live status so the next turn starts clean
           } else if (ev.type === 'limit_wait') {
             await this.api.sendMessage(chatId, renderStatus(meta.sessionName, [ev], Date.now(), meta.startedAt), { parse_mode: 'HTML' }).catch(() => {});
           }
