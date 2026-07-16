@@ -23,7 +23,7 @@ export function saveState(state: State): void {
 }
 
 export function defaultSession(name: string): Session {
-  return { name, cwd: projectsDir(), claudeSessionId: null, model: null, mode: 'auto', activeTaskId: null };
+  return { name, cwd: projectsDir(), claudeSessionId: null, model: null, effort: null, mode: 'auto', activeTaskId: null };
 }
 
 export function getChat(state: State, chatId: number): ChatState {

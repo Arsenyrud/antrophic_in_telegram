@@ -1,10 +1,12 @@
 export type SessionMode = 'auto' | 'plan';
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface Session {
   name: string;
   cwd: string;
   claudeSessionId: string | null;
-  model: string | null; // 'opus' | 'sonnet' | 'haiku' | null = дефолт
+  model: string | null;   // полный ID модели (claude-opus-4-8 …) или null = дефолт
+  effort: Effort | null;  // уровень reasoning или null = дефолт
   mode: SessionMode;
   activeTaskId: string | null;
 }
@@ -32,6 +34,7 @@ export interface TaskMeta {
   cwd: string;
   resumeSessionId: string | null;
   model: string | null;
+  effort: Effort | null;
   mode: SessionMode;
   startedAt: number;
 }

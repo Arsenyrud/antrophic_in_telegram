@@ -6,9 +6,13 @@ import { ensureDir, projectsDir, tasksRoot } from '../paths.js';
 import { defaultSession, getChat, loadState, readTaskMeta, saveState } from '../state.js';
 import type { ChatState, Session, TaskEvent } from '../types.js';
 import { composeForward, sessionTag } from './format.js';
-import { forwardTargetsKb, modeKb, modelKb, noCommentKb, projectsKb, sessionsKb } from './keyboards.js';
+import { effortKb, forwardTargetsKb, modeKb, modelKb, MODELS, noCommentKb, projectsKb, sessionsKb } from './keyboards.js';
 import { TaskManager } from './tasks.js';
 import { escapeHtml } from '../markdown.js';
+import type { Effort } from '../types.js';
+
+const EFFORT_SET = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const modelLabel = (id: string | null): string => id ? (MODELS.find((m) => m.id === id)?.label ?? id) : 'по умолчанию';
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const allowed = Number(process.env.ALLOWED_USER_ID);
@@ -48,7 +52,8 @@ const HELP = [
   '/sessions — сессии (переключение, создание)',
   '/reset — новый диалог Claude в текущей сессии',
   '/projects — проект текущей сессии',
-  '/model — модель (Opus/Sonnet/Haiku)',
+  '/model — модель (Fable/Opus/Sonnet/Haiku)',
+  '/effort — глубина рассуждений (low…max)',
   '/mode — 🚀 автономный / 📋 план',
   '/status — все сессии и задачи',
   '/stop — остановить задачу текущей сессии',
@@ -72,6 +77,8 @@ bot.command('projects', (ctx) => ctx.reply('Проекты (~/projects):', { rep
 
 bot.command('model', (ctx) => ctx.reply('Модель текущей сессии:', { reply_markup: modelKb() }));
 
+bot.command('effort', (ctx) => ctx.reply('Глубина рассуждений (больше = умнее и дороже):', { reply_markup: effortKb() }));
+
 bot.command('mode', (ctx) => ctx.reply('Режим текущей сессии:', { reply_markup: modeKb() }));
 
 bot.command('status', (ctx) => {
@@ -79,9 +86,9 @@ bot.command('status', (ctx) => {
   const lines = Object.values(chat.sessions).map((s) => {
     const mark = s.name === chat.current ? '👉' : '·';
     const run = tm.isRunning(s) ? '🟢 работает' : '⚪ ожидает';
-    const model = s.model ?? 'default';
+    const brain = `${modelLabel(s.model)} · effort ${s.effort ?? 'дефолт'}`;
     const sid = s.claudeSessionId ? `\n   resume: <code>${s.claudeSessionId}</code>` : '';
-    return `${mark} <b>${escapeHtml(s.name)}</b> — ${run}\n   📁 ${escapeHtml(s.cwd)}\n   🧠 ${model} · ${s.mode === 'plan' ? '📋 план' : '🚀 авто'}${sid}`;
+    return `${mark} <b>${escapeHtml(s.name)}</b> — ${run}\n   📁 ${escapeHtml(s.cwd)}\n   🧠 ${escapeHtml(brain)} · ${s.mode === 'plan' ? '📋 план' : '🚀 авто'}${sid}`;
   });
   return ctx.reply(lines.join('\n\n'), { parse_mode: 'HTML' });
 });
@@ -129,7 +136,11 @@ bot.on('callback_query:data', async (ctx) => {
   } else if (kind === 'model') {
     cur(chat).model = arg === 'default' ? null : arg;
     saveState(state);
-    await ctx.reply(`${sessionTag(chat.current)}: модель → ${arg}`, { parse_mode: 'HTML' });
+    await ctx.reply(`${sessionTag(chat.current)}: модель → ${modelLabel(cur(chat).model)}`, { parse_mode: 'HTML' });
+  } else if (kind === 'effort') {
+    cur(chat).effort = arg === 'default' || !EFFORT_SET.has(arg) ? null : (arg as Effort);
+    saveState(state);
+    await ctx.reply(`${sessionTag(chat.current)}: effort → ${cur(chat).effort ?? 'по умолчанию'}`, { parse_mode: 'HTML' });
   } else if (kind === 'mode') {
     cur(chat).mode = arg === 'plan' ? 'plan' : 'auto';
     saveState(state);
@@ -219,7 +230,8 @@ await bot.api.setMyCommands([
   { command: 'sessions', description: 'Сессии: переключить/создать' },
   { command: 'status', description: 'Статус всех сессий' },
   { command: 'projects', description: 'Проект текущей сессии' },
-  { command: 'model', description: 'Модель (Opus/Sonnet/Haiku)' },
+  { command: 'model', description: 'Модель (Fable/Opus/Sonnet/Haiku)' },
+  { command: 'effort', description: 'Глубина рассуждений (low…max)' },
   { command: 'mode', description: 'Режим: автономный/план' },
   { command: 'reset', description: 'Сбросить контекст сессии' },
   { command: 'stop', description: 'Остановить задачу' },

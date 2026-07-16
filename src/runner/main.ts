@@ -37,6 +37,7 @@ async function runOnce(): Promise<Outcome> {
       cwd: meta.cwd,
       permissionMode: meta.mode === 'plan' ? 'plan' : 'bypassPermissions',
       ...(meta.model ? { model: meta.model } : {}),
+      ...(meta.effort ? { effort: meta.effort } : {}),
       ...(resumeId ? { resume: resumeId } : {}),
       settingSources: ['user', 'project'],
     } as any,

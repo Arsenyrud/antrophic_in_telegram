@@ -44,7 +44,7 @@ export class TaskManager {
     const meta: TaskMeta = {
       taskId, chatId, sessionName: session.name, prompt,
       cwd: session.cwd, resumeSessionId: session.claudeSessionId,
-      model: session.model, mode: session.mode, startedAt: Date.now(),
+      model: session.model, effort: session.effort ?? null, mode: session.mode, startedAt: Date.now(),
     };
     writeTaskMeta(meta);
     spawnRunner(taskId);

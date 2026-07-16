@@ -28,6 +28,8 @@ test('getChat creates default main session with projectsDir cwd', () => {
   expect(chat.sessions['main'].cwd).toBe(process.env.PROJECTS_DIR);
   expect(chat.sessions['main'].mode).toBe('auto');
   expect(chat.sessions['main'].claudeSessionId).toBeNull();
+  expect(chat.sessions['main'].model).toBeNull();
+  expect(chat.sessions['main'].effort).toBeNull();
 });
 
 test('task meta roundtrip', () => {
