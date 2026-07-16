@@ -1,5 +1,7 @@
 export type SessionMode = 'auto' | 'plan';
-export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+// 'ultracode' — не значение SDK-параметра, а верхняя ступень слайдера:
+// раннер разворачивает её в effort=xhigh + системную директиву на мульти-агентную оркестрацию.
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode';
 
 export interface Session {
   name: string;

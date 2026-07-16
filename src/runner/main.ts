@@ -14,6 +14,17 @@ if (!taskId) { console.error('usage: runner <taskId>'); process.exit(2); }
 const meta = readTaskMeta(taskId);
 writeFileSync(pidFile(taskId), String(process.pid));
 
+// Ultracode = верхняя ступень слайдера: не значение SDK-параметра, а effort=xhigh
+// + директива на мульти-агентную оркестрацию (в headless-SDK — через суб-агентов Task).
+const ULTRA = meta.effort === 'ultracode';
+const SDK_EFFORT = ULTRA ? 'xhigh' : meta.effort;
+const ULTRA_PROMPT = [
+  'Режим Ultracode. Оптимизируй за максимально исчерпывающий и корректный результат, а не за скорость или экономию — токены не ограничение.',
+  'Для любой существенной задачи сначала декомпозируй её, затем агрессивно используй суб-агентов (инструмент Task) для параллельной работы над независимыми частями.',
+  'После получения результата адверсариально проверяй его отдельными суб-агентами-скептиками (каждый пытается опровергнуть/найти баги), прежде чем отдавать итог.',
+  'Решай в одиночку только тривиальные или разговорные шаги.',
+].join(' ');
+
 type EventInput = TaskEvent extends infer E ? (E extends TaskEvent ? Omit<E, 'ts'> : never) : never;
 const ev = (e: EventInput) => appendEvent(taskId, { ...e, ts: Date.now() } as TaskEvent);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -37,7 +48,8 @@ async function runOnce(): Promise<Outcome> {
       cwd: meta.cwd,
       permissionMode: meta.mode === 'plan' ? 'plan' : 'bypassPermissions',
       ...(meta.model ? { model: meta.model } : {}),
-      ...(meta.effort ? { effort: meta.effort } : {}),
+      ...(SDK_EFFORT ? { effort: SDK_EFFORT } : {}),
+      ...(ULTRA ? { appendSystemPrompt: ULTRA_PROMPT } : {}),
       ...(resumeId ? { resume: resumeId } : {}),
       settingSources: ['user', 'project'],
     } as any,

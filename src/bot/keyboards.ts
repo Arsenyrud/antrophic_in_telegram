@@ -1,5 +1,30 @@
-import { InlineKeyboard } from 'grammy';
+import { InlineKeyboard, Keyboard } from 'grammy';
 import type { ChatState } from '../types.js';
+
+// Метки постоянной нижней клавиатуры (reply keyboard). Кнопка шлёт свой текст
+// как обычное сообщение — бот ловит его по этим меткам и открывает нужный экран.
+export const BOTTOM = {
+  sessions: '🗂 Сессии',
+  projects: '📁 Проекты',
+  model: '🧠 Модель',
+  effort: '🎚 Effort',
+  mode: '🚀 Режим',
+  status: '📊 Статус',
+  reset: '🔄 Сброс',
+  stop: '⏹ Стоп',
+} as const;
+
+export const BOTTOM_LABELS: Set<string> = new Set(Object.values(BOTTOM));
+
+export function bottomKb(): Keyboard {
+  return new Keyboard()
+    .text(BOTTOM.sessions).text(BOTTOM.projects).row()
+    .text(BOTTOM.model).text(BOTTOM.effort).row()
+    .text(BOTTOM.mode).text(BOTTOM.status).row()
+    .text(BOTTOM.reset).text(BOTTOM.stop)
+    .resized()
+    .persistent();
+}
 
 export function sessionsKb(chat: ChatState): InlineKeyboard {
   const kb = new InlineKeyboard();
@@ -30,7 +55,15 @@ export const MODELS: { label: string; id: string }[] = [
   { label: 'Haiku 4.5', id: 'claude-haiku-4-5' },
 ];
 
-export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+// Слайдер effort как в интерактивном Claude Code — 6 ступеней, верхняя = Ultracode.
+export const EFFORTS: { label: string; id: string }[] = [
+  { label: 'Low', id: 'low' },
+  { label: 'Medium', id: 'medium' },
+  { label: 'High', id: 'high' },
+  { label: 'Extra high', id: 'xhigh' },
+  { label: 'Max', id: 'max' },
+  { label: '🔥 Ultracode', id: 'ultracode' },
+];
 
 export function modelKb(): InlineKeyboard {
   const kb = new InlineKeyboard();
@@ -43,7 +76,10 @@ export function modelKb(): InlineKeyboard {
 
 export function effortKb(): InlineKeyboard {
   const kb = new InlineKeyboard();
-  EFFORTS.forEach((e) => kb.text(e, `effort:${e}`));
+  EFFORTS.forEach((e, i) => {
+    kb.text(e.label, `effort:${e.id}`);
+    if (i % 2 === 1) kb.row();
+  });
   return kb.row().text('По умолчанию', 'effort:default');
 }
 

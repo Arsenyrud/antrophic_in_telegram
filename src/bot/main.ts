@@ -1,4 +1,4 @@
-import { Bot } from 'grammy';
+import { Bot, type Context } from 'grammy';
 import { mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readEvents } from '../events.js';
@@ -6,13 +6,14 @@ import { ensureDir, projectsDir, tasksRoot } from '../paths.js';
 import { defaultSession, getChat, loadState, readTaskMeta, saveState } from '../state.js';
 import type { ChatState, Session, TaskEvent } from '../types.js';
 import { composeForward, sessionTag } from './format.js';
-import { cancelKb, effortKb, forwardTargetsKb, mainMenuKb, modeKb, modelKb, MODELS, noCommentKb, projectsKb, sessionsKb } from './keyboards.js';
+import { BOTTOM, BOTTOM_LABELS, bottomKb, cancelKb, effortKb, EFFORTS, forwardTargetsKb, modeKb, modelKb, MODELS, noCommentKb, projectsKb, sessionsKb } from './keyboards.js';
 import { TaskManager } from './tasks.js';
 import { escapeHtml } from '../markdown.js';
 import type { Effort } from '../types.js';
 
-const EFFORT_SET = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const EFFORT_SET = new Set(EFFORTS.map((e) => e.id));
 const modelLabel = (id: string | null): string => id ? (MODELS.find((m) => m.id === id)?.label ?? id) : 'по умолчанию';
+const effortLabel = (id: string | null): string => id ? (EFFORTS.find((e) => e.id === id)?.label ?? id) : 'дефолт';
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const allowed = Number(process.env.ALLOWED_USER_ID);
@@ -54,7 +55,7 @@ function statusText(chat: ChatState): string {
   return Object.values(chat.sessions).map((s) => {
     const mark = s.name === chat.current ? '👉' : '·';
     const run = tm.isRunning(s) ? '🟢 работает' : '⚪ ожидает';
-    const brain = `${modelLabel(s.model)} · effort ${s.effort ?? 'дефолт'}`;
+    const brain = `${modelLabel(s.model)} · effort ${effortLabel(s.effort)}`;
     const sid = s.claudeSessionId ? `\n   resume: <code>${s.claudeSessionId}</code>` : '';
     return `${mark} <b>${escapeHtml(s.name)}</b> — ${run}\n   📁 ${escapeHtml(s.cwd)}\n   🧠 ${escapeHtml(brain)} · ${s.mode === 'plan' ? '📋 план' : '🚀 авто'}${sid}`;
   }).join('\n\n');
@@ -75,13 +76,36 @@ const HELP = [
   '/reset — новый диалог Claude в текущей сессии',
   '/projects — проект текущей сессии',
   '/model — модель (Fable/Opus/Sonnet/Haiku)',
-  '/effort — глубина рассуждений (low…max)',
+  '/effort — глубина рассуждений (low…🔥 Ultracode)',
   '/mode — 🚀 автономный / 📋 план',
   '/status — все сессии и задачи',
   '/stop — остановить задачу текущей сессии',
 ].join('\n');
 
-bot.command(['start', 'help', 'menu'], (ctx) => ctx.reply(HELP, { reply_markup: mainMenuKb() }));
+bot.command(['start', 'help', 'menu'], (ctx) => ctx.reply(HELP, { reply_markup: bottomKb() }));
+
+// Обработка нажатий нижней клавиатуры (reply keyboard шлёт текст метки).
+async function handleBottom(ctx: Context, chat: ChatState, label: string): Promise<void> {
+  switch (label) {
+    case BOTTOM.sessions: await ctx.reply('Сессии:', { reply_markup: sessionsKb(chat) }); break;
+    case BOTTOM.projects: await ctx.reply('Проекты (~/projects):', { reply_markup: projectsKb(listProjects()) }); break;
+    case BOTTOM.model: await ctx.reply('Модель текущей сессии:', { reply_markup: modelKb() }); break;
+    case BOTTOM.effort: await ctx.reply('Глубина рассуждений (больше = умнее и дороже):', { reply_markup: effortKb() }); break;
+    case BOTTOM.mode: await ctx.reply('Режим текущей сессии:', { reply_markup: modeKb() }); break;
+    case BOTTOM.status: await ctx.reply(statusText(chat), { parse_mode: 'HTML' }); break;
+    case BOTTOM.reset:
+      cur(chat).claudeSessionId = null;
+      saveState(state);
+      await ctx.reply(`${sessionTag(chat.current)}: контекст сброшен, следующее сообщение начнёт новый диалог.`, { parse_mode: 'HTML' });
+      break;
+    case BOTTOM.stop: {
+      const s = cur(chat);
+      if (s.activeTaskId && tm.isRunning(s)) { tm.requestStop(s.activeTaskId); await ctx.reply(`${sessionTag(s.name)}: останавливаю…`, { parse_mode: 'HTML' }); }
+      else await ctx.reply('Нет активной задачи в текущей сессии.');
+      break;
+    }
+  }
+}
 
 bot.command('sessions', (ctx) => {
   const chat = getChat(state, ctx.chat.id);
@@ -162,7 +186,8 @@ bot.on('callback_query:data', async (ctx) => {
   } else if (kind === 'effort') {
     cur(chat).effort = arg === 'default' || !EFFORT_SET.has(arg) ? null : (arg as Effort);
     saveState(state);
-    await ctx.reply(`${sessionTag(chat.current)}: effort → ${cur(chat).effort ?? 'по умолчанию'}`, { parse_mode: 'HTML' });
+    const note = cur(chat).effort === 'ultracode' ? ' — xhigh + мульти-агентная оркестрация 🔥' : '';
+    await ctx.reply(`${sessionTag(chat.current)}: effort → ${effortLabel(cur(chat).effort)}${note}`, { parse_mode: 'HTML' });
   } else if (kind === 'mode') {
     cur(chat).mode = arg === 'plan' ? 'plan' : 'auto';
     saveState(state);
@@ -240,6 +265,13 @@ bot.on('message:text', async (ctx) => {
   const chat = getChat(state, ctx.chat.id);
   const text = ctx.message.text;
 
+  // Нажатие нижней кнопки — перехватываем раньше всего (и отменяем незавершённый ввод).
+  if (BOTTOM_LABELS.has(text)) {
+    if (chat.pending) { chat.pending = undefined; saveState(state); }
+    await handleBottom(ctx, chat, text);
+    return;
+  }
+
   const pending = chat.pending;
   if (pending?.kind === 'new-session') {
     chat.pending = undefined;
@@ -277,7 +309,7 @@ await bot.api.setMyCommands([
   { command: 'status', description: 'Статус всех сессий' },
   { command: 'projects', description: 'Проект текущей сессии' },
   { command: 'model', description: 'Модель (Fable/Opus/Sonnet/Haiku)' },
-  { command: 'effort', description: 'Глубина рассуждений (low…max)' },
+  { command: 'effort', description: 'Глубина рассуждений (low…Ultracode)' },
   { command: 'mode', description: 'Режим: автономный/план' },
   { command: 'reset', description: 'Сбросить контекст сессии' },
   { command: 'stop', description: 'Остановить задачу' },
