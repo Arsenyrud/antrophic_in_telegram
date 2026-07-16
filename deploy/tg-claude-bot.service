@@ -1,0 +1,17 @@
+[Unit]
+Description=tg-claude Telegram bot (Claude Code interface)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=claude
+WorkingDirectory=/opt/tg-claude
+ExecStart=/usr/bin/node /opt/tg-claude/dist/bot/main.js
+EnvironmentFile=/etc/tg-claude/env
+Restart=always
+RestartSec=3
+# раннеры (detached-дети) должны переживать рестарт бота:
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
