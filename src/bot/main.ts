@@ -17,7 +17,7 @@ const effortLabel = (id: string | null): string => id ? (EFFORTS.find((e) => e.i
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const allowed = Number(process.env.ALLOWED_USER_ID);
-if (!token || !allowed) { console.error('TELEGRAM_BOT_TOKEN и ALLOWED_USER_ID обязательны'); process.exit(2); }
+if (!token || !allowed) { console.error('TELEGRAM_BOT_TOKEN and ALLOWED_USER_ID are required'); process.exit(2); }
 
 ensureDir(tasksRoot());
 ensureDir(projectsDir());
@@ -36,8 +36,8 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
-// Слэш-команда отменяет незавершённый ввод (имя сессии/проекта, комментарий к пересылке),
-// иначе следующее обычное сообщение будет ошибочно съедено как этот ввод.
+// A slash command cancels a pending input (session/project name, forward comment),
+// so the next plain message isn't mistakenly consumed as that input.
 bot.use(async (ctx, next) => {
   const t = ctx.message?.text;
   if (t && t.startsWith('/') && ctx.chat) {
@@ -111,7 +111,7 @@ bot.command(['start', 'help', 'menu'], (ctx) => ctx.reply(HELP, { reply_markup: 
 
 bot.command('guide', (ctx) => ctx.reply(GUIDE, { parse_mode: 'HTML' }));
 
-// Обработка нажатий нижней клавиатуры (reply keyboard шлёт текст метки).
+// Handle bottom-keyboard taps (a reply keyboard sends the label text).
 async function handleBottom(ctx: Context, chat: ChatState, label: string): Promise<void> {
   switch (label) {
     case BOTTOM.sessions: await showSessions(ctx, chat); break;
@@ -247,22 +247,6 @@ bot.on('callback_query:data', async (ctx) => {
     chat.pending = undefined;
     saveState(state);
     await ctx.reply('Отменено.');
-  } else if (kind === 'menu') {
-    if (arg === 'sessions') await showSessions(ctx, chat);
-    else if (arg === 'projects') await showProjects(ctx);
-    else if (arg === 'model') await ctx.reply('Модель текущей сессии:', { reply_markup: modelKb() });
-    else if (arg === 'effort') await ctx.reply('Глубина рассуждений (больше = умнее и дороже):', { reply_markup: effortKb() });
-    else if (arg === 'mode') await ctx.reply('Режим текущей сессии:', { reply_markup: modeKb() });
-    else if (arg === 'status') await ctx.reply(statusText(chat), { parse_mode: 'HTML' });
-    else if (arg === 'reset') {
-      cur(chat).claudeSessionId = null;
-      saveState(state);
-      await ctx.reply(`${sessionTag(chat.current)}: контекст сброшен, следующее сообщение начнёт новый диалог.`, { parse_mode: 'HTML' });
-    } else if (arg === 'stop') {
-      const s = cur(chat);
-      if (s.activeTaskId && tm.isRunning(s)) { tm.requestStop(s.activeTaskId); await ctx.reply(`${sessionTag(s.name)}: останавливаю…`, { parse_mode: 'HTML' }); }
-      else await ctx.reply('Нет активной задачи в текущей сессии.');
-    }
   }
   await ctx.answerCallbackQuery();
 });
@@ -289,7 +273,7 @@ bot.on('message:text', async (ctx) => {
   const chat = getChat(state, ctx.chat.id);
   const text = ctx.message.text;
 
-  // Нажатие нижней кнопки — перехватываем раньше всего (и отменяем незавершённый ввод).
+  // Bottom-button tap — intercept first (and cancel any pending input).
   if (BOTTOM_LABELS.has(text)) {
     if (chat.pending) { chat.pending = undefined; saveState(state); }
     await handleBottom(ctx, chat, text);
@@ -343,6 +327,5 @@ await bot.api.setMyCommands([
 
 await tm.reattachAll();
 console.log('tg-claude bot started');
-// drop_pending_updates: не переигрывать очередь старых апдейтов после рестарта/деплоя
-// (иначе накопленные команды дублируют ответы).
+// drop_pending_updates: don't replay the backlog after a restart/deploy (avoids duplicate replies).
 await bot.start({ drop_pending_updates: true });

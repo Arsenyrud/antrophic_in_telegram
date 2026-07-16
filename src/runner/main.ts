@@ -14,8 +14,8 @@ if (!taskId) { console.error('usage: runner <taskId>'); process.exit(2); }
 const meta = readTaskMeta(taskId);
 writeFileSync(pidFile(taskId), String(process.pid));
 
-// Ultracode = верхняя ступень слайдера: не значение SDK-параметра, а effort=xhigh
-// + директива на мульти-агентную оркестрацию (в headless-SDK — через суб-агентов Task).
+// Ultracode = top slider stop: not an SDK value, but effort=xhigh + a directive to
+// orchestrate via subagents (Task) — the headless equivalent of interactive workflows.
 const ULTRA = meta.effort === 'ultracode';
 const SDK_EFFORT = ULTRA ? 'xhigh' : meta.effort;
 const ULTRA_PROMPT = [
@@ -76,7 +76,7 @@ async function runOnce(): Promise<Outcome> {
         if (msg.subtype === 'success') {
           ev({ type: 'turn_done', text: msg.result ?? '', costUsd: msg.total_cost_usd ?? null, turns: msg.num_turns ?? 0 });
         } else {
-          // Достаём максимум текста, чтобы распознать лимит подписки (иначе теряется в subtype).
+          // Pull out any text so a subscription limit is detectable (otherwise it's lost in subtype).
           const detail = msg.result ?? msg.error ?? msg.message ?? (msg.errors ? JSON.stringify(msg.errors) : '');
           console.error('[runner] non-success result:', JSON.stringify(msg).slice(0, 800));
           failure = detail ? String(detail) : `result:${msg.subtype}`;
@@ -102,7 +102,7 @@ try {
       const resetAt = parseResetTime(outcome.message) ?? null;
       ev({ type: 'limit_wait', resetAt });
       const waitUntil = Date.now() + Math.min(Math.max((resetAt ?? 0) - Date.now(), 15 * 60_000), 6 * 3600_000);
-      // Спим до сброса окна, но реагируем на /stop, а не игнорируем его часами.
+      // Sleep until the window resets, but honor /stop instead of ignoring it for hours.
       while (Date.now() < waitUntil) {
         if (existsSync(stopFile(taskId))) { ev({ type: 'done' }); process.exit(0); }
         await sleep(Math.min(5000, waitUntil - Date.now()));

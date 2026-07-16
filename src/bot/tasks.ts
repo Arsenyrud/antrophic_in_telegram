@@ -24,14 +24,14 @@ function readCursor(taskId: string): number {
   try { return Number(readFileSync(cursorFile(taskId), 'utf8').trim()) || 0; } catch { return 0; }
 }
 function writeCursor(taskId: string, n: number): void {
-  try { writeFileSync(cursorFile(taskId), String(n)); } catch { /* не критично */ }
+  try { writeFileSync(cursorFile(taskId), String(n)); } catch { /* best-effort */ }
 }
 
 export function pidAlive(taskId: string): boolean {
   let pid: number;
   try { pid = Number(readFileSync(pidFile(taskId), 'utf8').trim()); } catch { return false; }
   if (!pid) return false;
-  // На Linux сверяем cmdline: после ребута PID мог переиспользоваться чужим процессом.
+  // Verify cmdline: after a reboot the PID may have been reused by another process.
   try {
     return readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(taskId);
   } catch {
@@ -59,8 +59,7 @@ export class TaskManager {
 
   inject(taskId: string, text: string): void {
     ensureDir(inboxDir(taskId));
-    // Date.now()+счётчик, чтобы два впрыска в одну миллисекунду не перезатёрли друг друга;
-    // порядок сохраняется (drainInbox сортирует лексикографически, seq дополнен нулями).
+    // Date.now()+seq so two injects in the same ms don't collide; zero-padded seq keeps sort order.
     const name = `${Date.now()}-${String(injectSeq++).padStart(6, '0')}.txt`;
     writeFileSync(join(inboxDir(taskId), name), text);
   }
@@ -100,7 +99,7 @@ export class TaskManager {
     try {
       const m = await this.api.sendMessage(chatId, renderStatus(meta.sessionName, [], Date.now(), meta.startedAt), { parse_mode: 'HTML', reply_markup: stopKb(taskId) });
       statusId = m.message_id;
-    } catch { /* статус не критичен */ }
+    } catch { /* status is best-effort */ }
 
     const recent: TaskEvent[] = [];
     const throttler = new Throttler(3000);
@@ -113,8 +112,8 @@ export class TaskManager {
     };
     const heartbeat = setInterval(updateStatus, 60_000);
 
-    // Курсор доставки: сколько событий уже обработано (доставлено пользователю).
-    // При рестарте бота reattach не переотправляет ранее показанные отчёты.
+    // Delivery cursor: how many events were already delivered, so a bot restart
+    // (reattach) doesn't re-send previously shown reports.
     let processed = readCursor(taskId);
     let idx = 0;
 
@@ -143,17 +142,17 @@ export class TaskManager {
         }
         writeCursor(taskId, idx);
       }
-      // tail завершился без терминального события — раннер умер (OOM/ребут)
+      // tail ended without a terminal event — runner died (OOM/reboot)
       await this.finalize(meta, statusId, null);
     } finally {
       clearInterval(heartbeat);
-      throttler.cancel(); // не перезатирать финальный статус отложенным рендером «работает»
+      throttler.cancel(); // don't let a queued "running" render overwrite the final status
     }
   }
 
   private async sendFinal(chatId: number, sessionName: string, taskId: string, text: string): Promise<void> {
     const header = renderFinalHeader(sessionName);
-    // Резервируем место под заголовок ДО нарезки, чтобы первый кусок + заголовок не превысил 4096.
+    // Reserve room for the header before chunking so header + first chunk stays ≤ 4096.
     const chunks = mdToTelegramChunks(text, Math.max(512, 4096 - header.length - 2));
     const kb = new InlineKeyboard().text('↪️ Переслать в…', `fwd:${taskId}`);
     for (let i = 0; i < chunks.length; i++) {
@@ -196,7 +195,7 @@ export class TaskManager {
       const last = events[events.length - 1] ?? null;
       const finished = last && (last.type === 'done' || last.type === 'error');
       if (finished || pidAlive(taskId)) {
-        // живая — прицепимся и доиграем события; завершённая — finalize внутри attach отработает мгновенно
+        // alive → attach and tail; finished → attach's finalize runs immediately
         void this.attach(meta);
       } else {
         await this.finalize(meta, null, null);

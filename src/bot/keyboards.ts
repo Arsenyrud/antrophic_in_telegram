@@ -1,8 +1,8 @@
 import { InlineKeyboard, Keyboard } from 'grammy';
 import type { ChatState } from '../types.js';
 
-// Метки постоянной нижней клавиатуры (reply keyboard). Кнопка шлёт свой текст
-// как обычное сообщение — бот ловит его по этим меткам и открывает нужный экран.
+// Persistent bottom (reply) keyboard labels. A button sends its own text as a message;
+// the bot matches these labels and opens the corresponding screen.
 export const BOTTOM = {
   sessions: '🗂 Сессии',
   projects: '📁 Проекты',
@@ -36,16 +36,15 @@ export function sessionsKb(chat: ChatState): InlineKeyboard {
   return kb.text('➕ новая сессия', 'sess:new');
 }
 
-// callback_data ограничен 64 байтами, а имена папок произвольны (в т.ч. кириллица),
-// поэтому в callback кладём индекс, а имя резолвим по свежему списку при клике.
+// callback_data is capped at 64 bytes and dir names are arbitrary (incl. Cyrillic),
+// so we pass an index and resolve the name from a fresh listing on click.
 export function projectsKb(dirs: string[]): InlineKeyboard {
   const kb = new InlineKeyboard();
   dirs.forEach((d, i) => kb.text(d, `proj:${i}`).row());
   return kb.text('➕ создать проект', 'proj:new');
 }
 
-// Полные ID моделей — их SDK-опция `model` принимает надёжнее коротких алиасов.
-// Актуальный лайнап Claude 5 / 4.x.
+// Full model ids — the SDK `model` option takes them more reliably than short aliases.
 export const MODELS: { label: string; id: string }[] = [
   { label: 'Fable 5', id: 'claude-fable-5' },
   { label: 'Opus 4.8', id: 'claude-opus-4-8' },
@@ -55,7 +54,7 @@ export const MODELS: { label: string; id: string }[] = [
   { label: 'Haiku 4.5', id: 'claude-haiku-4-5' },
 ];
 
-// Слайдер effort как в интерактивном Claude Code — 6 ступеней, верхняя = Ultracode.
+// Effort slider mirroring the Claude Code UI — 6 stops, top = Ultracode.
 export const EFFORTS: { label: string; id: string }[] = [
   { label: 'Low', id: 'low' },
   { label: 'Medium', id: 'medium' },
@@ -101,14 +100,6 @@ export function noCommentKb(taskId: string, to: string): InlineKeyboard {
 
 export function cancelKb(): InlineKeyboard {
   return new InlineKeyboard().text('✖️ Отмена', 'cancel');
-}
-
-export function mainMenuKb(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text('🗂 Сессии', 'menu:sessions').text('📁 Проекты', 'menu:projects').row()
-    .text('🧠 Модель', 'menu:model').text('🎚 Effort', 'menu:effort').row()
-    .text('🚀 Режим', 'menu:mode').text('📊 Статус', 'menu:status').row()
-    .text('🔄 Сброс контекста', 'menu:reset').text('⏹ Стоп', 'menu:stop');
 }
 
 export function stopKb(taskId: string): InlineKeyboard {

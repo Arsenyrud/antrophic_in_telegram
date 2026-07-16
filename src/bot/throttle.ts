@@ -8,8 +8,7 @@ export class Throttler {
   schedule(fn: () => Promise<void>): void {
     this.pending = fn;
     if (this.timer) return;
-    // +1: коалесцированный запуск строго ПОСЛЕ минимального интервала,
-    // а не ровно на границе lastRun + minMs.
+    // +1: fire strictly after minMs, not exactly on the boundary.
     const wait = Math.max(0, this.lastRun + this.minMs - Date.now() + 1);
     this.timer = setTimeout(() => void this.flushNow(), wait);
   }
@@ -20,10 +19,10 @@ export class Throttler {
     this.pending = null;
     if (!fn) return;
     this.lastRun = Date.now();
-    try { await fn(); } catch { /* Телеграм переживёт */ }
+    try { await fn(); } catch { /* ignore */ }
   }
 
-  /** Отменить отложенный вызов, не выполняя его (чтобы не перезатереть финальный статус). */
+  /** Drop the pending run so it can't overwrite a final status. */
   cancel(): void {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.pending = null;

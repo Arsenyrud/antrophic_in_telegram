@@ -46,16 +46,16 @@ function renderCode(lang: string, body: string): string {
   return `<pre><code${cls}>${escapeHtml(body)}</code></pre>`;
 }
 
-// Наибольшая позиция разреза <= limit, не попадающая внутрь HTML-тега (<...>)
-// или сущности (&...;) — иначе получится битый HTML, который Telegram отвергнет.
+// Largest cut <= limit that doesn't land inside a tag (<...>) or entity (&...;) —
+// Telegram rejects broken HTML.
 function safeCut(s: string, limit: number): number {
   let cut = Math.min(limit, s.length);
   const lt = s.lastIndexOf('<', cut - 1);
   const gt = s.lastIndexOf('>', cut - 1);
-  if (lt > gt) cut = lt; // внутри открытого тега — режем до '<'
+  if (lt > gt) cut = lt; // inside a tag → cut before '<'
   const amp = s.lastIndexOf('&', cut - 1);
   const semi = s.lastIndexOf(';', cut - 1);
-  if (amp > semi && cut - amp < 12) cut = amp; // внутри &entity; — режем до '&'
+  if (amp > semi && cut - amp < 12) cut = amp; // inside an entity → cut before '&'
   return cut > 0 ? cut : Math.min(limit, s.length);
 }
 
@@ -73,12 +73,12 @@ function splitText(html: string, maxLen: number): string[] {
 }
 
 function splitCode(lang: string, body: string, maxLen: number): string[] {
-  const overhead = renderCode(lang, '').length + 16; // запас на экранирование по краям
+  const overhead = renderCode(lang, '').length + 16; // room for escaping at the edges
   const out: string[] = [];
   let rest = body;
   while (rest.length > 0) {
     let take = Math.max(1, Math.min(rest.length, maxLen - overhead));
-    // не резать посреди html-сущности после экранирования: подберём кусок, чей рендер влезает
+    // shrink until the rendered (escaped) chunk fits
     while (renderCode(lang, rest.slice(0, take)).length > maxLen && take > 10) take -= 10;
     out.push(renderCode(lang, rest.slice(0, take)));
     rest = rest.slice(take);
@@ -99,7 +99,7 @@ export function mdToTelegramChunks(md: string, maxLen = 4096): string[] {
       pieces.push(...splitText(html, maxLen));
     }
   }
-  // упаковка кусков в чанки ≤ maxLen
+  // pack pieces into chunks ≤ maxLen
   const chunks: string[] = [];
   let cur = '';
   for (const p of pieces) {

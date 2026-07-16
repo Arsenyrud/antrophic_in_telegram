@@ -1,14 +1,13 @@
 export type SessionMode = 'auto' | 'plan';
-// 'ultracode' — не значение SDK-параметра, а верхняя ступень слайдера:
-// раннер разворачивает её в effort=xhigh + системную директиву на мульти-агентную оркестрацию.
+// 'ultracode' is not an SDK value — the runner expands it to xhigh + a multi-agent directive.
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode';
 
 export interface Session {
   name: string;
   cwd: string;
   claudeSessionId: string | null;
-  model: string | null;   // полный ID модели (claude-opus-4-8 …) или null = дефолт
-  effort: Effort | null;  // уровень reasoning или null = дефолт
+  model: string | null;   // full model id, or null = default
+  effort: Effort | null;  // null = default
   mode: SessionMode;
   activeTaskId: string | null;
 }

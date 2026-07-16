@@ -11,7 +11,7 @@ function parseLines(chunk: string): TaskEvent[] {
   const out: TaskEvent[] = [];
   for (const line of chunk.split('\n')) {
     if (!line.trim()) continue;
-    try { out.push(JSON.parse(line) as TaskEvent); } catch { /* недописанная строка */ }
+    try { out.push(JSON.parse(line) as TaskEvent); } catch { /* partial line */ }
   }
   return out;
 }
@@ -24,14 +24,9 @@ export function readEvents(taskId: string): TaskEvent[] {
 
 const TERMINAL = new Set(['done', 'error']);
 
-/**
- * Тейлит events.jsonl. Завершается:
- *  - на терминальном событии (done/error);
- *  - если задан isAlive и раннер мёртв: после одного «grace»-опроса без новых
- *    байт (защита от гонки, когда done дописывается ровно в момент смерти pid);
- *  - если задан isAlive, раннер так и не ожил и прошло startupMs (спавн упал).
- * Без isAlive поведение прежнее — крутится, пока не встретит done/error.
- */
+// Tails events.jsonl. Ends on a terminal event; or, when `isAlive` is given, once the runner is
+// dead and the file is quiet (one grace poll to avoid racing a final write), or if it never
+// started within startupMs. Without `isAlive`, runs until done/error.
 export async function* tailEvents(
   taskId: string,
   opts: { pollMs?: number; isAlive?: () => boolean; startupMs?: number } = {},
@@ -72,9 +67,9 @@ export async function* tailEvents(
       if (grew) {
         deadPolls = 0;
       } else if (everAlive && !alive) {
-        if (++deadPolls >= 2) return; // раннер жил и умер, дозаписей нет
+        if (++deadPolls >= 2) return; // lived and died, no more writes
       } else if (!everAlive && Date.now() - startedAt > startupMs) {
-        return; // раннер так и не стартовал
+        return; // never started
       } else {
         deadPolls = 0;
       }
