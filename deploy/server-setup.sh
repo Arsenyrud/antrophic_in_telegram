@@ -53,9 +53,6 @@ EOF
 fi
 chown root:claude /etc/tg-claude/env && chmod 640 /etc/tg-claude/env
 
-echo "== серверный CLAUDE.md =="
-cp /opt/tg-claude/deploy/server-claude.md /home/claude/.claude/CLAUDE.md || true
-
 echo "== systemd =="
 cp /opt/tg-claude/deploy/tg-claude-bot.service /etc/systemd/system/tg-claude-bot.service
 systemctl daemon-reload
